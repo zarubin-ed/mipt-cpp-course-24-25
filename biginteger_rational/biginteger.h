@@ -659,17 +659,16 @@ public:
     return stod(asDecimal(kPrecision));
   }
 
-private:
-  mutable BigInteger numerator_ = 0;
-  mutable BigInteger denominator_ = 1;
-
-  static const size_t kPrecision = 6;
-
   Rational (const BigInteger& num, const BigInteger& den)
     : numerator_(num)
     , denominator_(den) {
     normalize();
   }
+private:
+  mutable BigInteger numerator_ = 0;
+  mutable BigInteger denominator_ = 1;
+
+  static const size_t kPrecision = 6;
 
   static BigInteger greatestCommonDivisor(BigInteger lhs, BigInteger rhs) {
     if (lhs == 0) {
