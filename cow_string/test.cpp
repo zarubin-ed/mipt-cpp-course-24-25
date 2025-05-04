@@ -3,7 +3,7 @@
 
 int main() {
   CowString s1("Example");
-  CowString s2 = s1; // Копирование с использованием COW (счетчик ссылок увеличивается)
+  CowString s2 = s1;
   s1.push_back('!');
 
   std::cout << "s1: " << s1 << "\n"; // Вывод: "Example!"
