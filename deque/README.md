@@ -1,132 +1,111 @@
-# Deque Template Class (`deque.h`)
+# Deque<T> Library (`deque.h`)
 
-Шаблонный класс `Deque<T>` — двусторонняя очередь (deque) с поддержкой случайного доступа, реализованная через фиксированные блоки (buckets). Предоставляет полный интерфейс контейнера: итераторы, индексирование, вставку/удаление в начале и конце, произвольное вставление/удаление и др.
+Упрощённый аналог `std::deque<T>` с поддержкой случайного доступа, двунаправленных итераторов и амортизированного O(1) добавления/удаления по концам.
 
 ---
 
 ## Содержание
-1. [Общая концепция](#overview)
-2. [Структура данных](#structure)
-3. [Конструкторы и деструктор](#constructors)
+1. [Обзор](#overview)
+2. [Конструкторы и присваивание](#constructors)
+3. [Размер и доступ](#access)
 4. [Итераторы](#iterators)
-5. [Основные методы](#methods)
-6. [Операторы](#operators)
-7. [Вставка и удаление](#modifiers)
-8. [Пример использования](#example)
+5. [Модификаторы](#modifiers)
+6. [Исключительная безопасность](#exceptions)
+7. [Пример использования](#example)
 
 ---
 
-## <a name="overview"></a>1. Общая концепция
+## <a name="overview"></a>1. Обзор
 
-`Deque<T>` хранит элементы в последовательности фиксированных блоков (buckets) размером `Bucket::kBucketSize`. Такой подход позволяет эффективно добавлять/удалять элементы и поддерживать случайный доступ за амортизированное O(1).
+`Deque<T>` stores elements in a static or dynamically resized array of fixed-size blocks (buckets) фиксированного размера. Поддерживает:
 
-- **Случайный доступ**: `operator[]`, `at()` — O(1)
-- **Добавление/удаление в конец/начало**: `push_back`, `pop_back`, `push_front`, `pop_front` — амортизированное O(1)
-- **Вставка/удаление в середину**: O(n)
-- **Итераторы**: поддерживают все операции случайного доступа
-
----
-
-## <a name="structure"></a>2. Структура данных
-
-- `Bucket` — вложенный класс, содержит выровненный блок памяти под `kBucketSize` объектов `T`.
-- Поля `Deque<T>`:
-  - `Bucket* data_` — массив `numberOfBuckets_ + 1` бакетов.
-  - `size_t size_` — текущее число элементов.
-  - `size_t numberOfBuckets_` — число задействованных бакетов.
-  - `iterator begin_` — итератор на первый элемент.
-
-Каждый бакет выделяется вручную через `operator new` с выравниванием.
+- **O(1)** доступ по индексу (`operator[]`, `at`).
+- **Амортизированное O(1)** добавление/удаление в начало и конец (`push_back`, `pop_back`, `push_front`, `pop_front`).
+- **O(n)** вставка/удаление в середину (`insert`, `erase`).
+- **Двунаправленные и обратные итераторы** с поддержкой всех операций RandomAccess.
 
 ---
 
-## <a name="constructors"></a>3. Конструкторы и деструктор
+## <a name="constructors"></a>2. Конструкторы и присваивание
 
-| Сигнатура | Описание |
-|---|---|
-| `Deque()` | Пустая дека
-| `Deque(const Deque& other)` | Копирующий: выделяет новые бакеты и копирует элементы
-| `Deque(size_t n)` | Конструирует `n` дефолтных элементов `T()`
-| `Deque(size_t n, const T& value)` | `n` копий `value`
-| `~Deque()` | Вызывает деструкторы элементов и освобождает бакеты
+| Сигнатура | Описание | Безопасность |
+|---|---|---|
+| `Deque()` | пустой deque | — |
+| `Deque(const Deque& other)` | копирующий конструктор | строгая гарантия |
+| `Deque& operator=(const Deque& other)` | копирующее присваивание | строгая гарантия |
+| `Deque(int n)` | `n` default-элементов `T()` | строгая гарантия |
+| `Deque(int n, const T& val)` | `n` копий `val` | строгая гарантия |
+
+Файл: `deque.h` (без `main`). Компиляция: C++23.
+
+---
+
+## <a name="access"></a>3. Размер и доступ
+
+| Метод / оператор | Сигнатура | Описание | Сложность |
+|---|---|---|---|
+| `size()` | `size_t size() const` | Число элементов | O(1) |
+| `operator[](i)` | `T& operator[](size_t)` | Доступ без проверки | O(1) |
+| `operator[](i) const` | `const T& operator[](size_t) const` |  | O(1) |
+| `at(i)` | `T& at(size_t)` / `const T& at(size_t) const` | С проверкой, `throw out_of_range` | O(1) |
+| `empty()` | `bool empty() const` | Пусто? | O(1) |
 
 ---
 
 ## <a name="iterators"></a>4. Итераторы
 
-Шаблонный вложенный класс `Iterator<IsConst>`:
-- Поддерживает `RandomAccessIterator`
-- Операции: `++`, `--`, `+`, `-`, `+=`, `-=`
-- Разыменование: `*`, `->`, `operator[]`
-- Сравнение: `<=>`, `==`
-
-Типы:
-```cpp
-auto it = deque.begin();            // iterator
-auto cit = deque.cbegin();          // const_iterator
-auto rit = deque.rbegin();          // reverse_iterator
-````
+**Внутренний тип** `iterator` и `const_iterator`:
+- Поддерживают `RandomAccessIterator`:
+  - `++, --`, `+ n, - n`, `it1 - it2`.
+  - Сравнение `<, >, <=, >=, ==, !=`.
+  - Разыменование `*it` → `T&`, `it->` → `T*`.
+  - Конверсия `iterator` → `const_iterator`.
+- **reverse_iterator**, методы `rbegin()`, `rend()`, `crbegin()`, `crend()`.
+- **Гарантия**: операции доступа не инвалидируют другие итераторы (кроме `insert`/`erase`).
 
 ---
 
-## <a name="methods"></a>5. Основные методы
+## <a name="modifiers"></a>5. Модификаторы
 
-| Метод           | Сигнатура               | Описание                     | Сложность    |
-| --------------- | ----------------------- | ---------------------------- | ------------ |
-| `size()`        | `size_t size() const`   | Количество элементов         | O(1)         |
-| `empty()`       | `bool empty() const`    | Пусто?                       | O(1)         |
-| `operator[](i)` | `T& operator[](size_t)` | Случайный доступ             | O(1)         |
-| `at(i)`         | `T& at(size_t)`         | Случайный доступ с проверкой | O(1), throws |
-| `front()`       | `T& front()`            | Первый элемент               | O(1)         |
-| `back()`        | `T& back()`             | Последний элемент            | O(1)         |
-
----
-
-## <a name="operators"></a>6. Операторы
-
-| Оператор                       | Описание                                 |
-| ------------------------------ | ---------------------------------------- |
-| `operator=`                    | Присваивание (copy-and-swap)             |
-| `operator[]`                   | Индексирование                           |
-| `operator==, !=, <, >, <=, >=` | Для итераторов и элементов при сравнении |
+| Метод | Сигнатура | Описание | Сложность | Искл. безопасность |
+|---|---|---|---|---|
+| `push_back(val)` | `void push_back(const T&)` | Добавить в конец | амортиз. O(1) | строгая |
+| `pop_back()` | `void pop_back()` | Удалить с конца | O(1) | н/д |
+| `push_front(val)` | `void push_front(const T&)` | Добавить в начало | амортиз. O(1) | строгая |
+| `pop_front()` | `void pop_front()` | Удалить с начала | O(1) | н/д |
+| `insert(it, val)` | `iterator insert(iterator, const T&)` | Вставить перед `it` | O(n) | строгая |
+| `erase(it)` | `iterator erase(iterator)` | Удалить `it` | O(n) | строгая |
+| `clear()` | `void clear()` | Удалить все | O(n) | н/д |
+| `swap(other)` | `void swap(Deque&)` | Обмен | O(1) | н/д |
 
 ---
 
-## <a name="modifiers"></a>7. Вставка и удаление
+## <a name="exceptions"></a>6. Исключительная безопасность
 
-| Метод                  | Сигнатура               | Описание       | Сложность |
-| ---------------------- | ----------------------- | -------------- | --------- |
-| `push_back(const T&)`  | Добавить в конец        | Amortized O(1) |           |
-| `pop_back()`           | Удалить с конца         | O(1)           |           |
-| `push_front(const T&)` | Добавить в начало       | Amortized O(1) |           |
-| `pop_front()`          | Удалить с начала        | O(1)           |           |
-| `insert(pos, value)`   | Вставить перед `pos`    | O(n)           |           |
-| `erase(pos)`           | Удалить элемент в `pos` | O(n)           |           |
-| `swap(other)`          | Поменять содержимое     | O(1)           |           |
+Все методы (кроме `insert`/`erase`) возвращают дека в исходное состояние при выбросе исключения из конструктора или оператора присваивания `T`. Обеспечивается копированием прежде чем изменять.
 
 ---
 
-## <a name="example"></a>8. Пример использования
+## <a name="example"></a>7. Пример использования
 
 ```cpp
 #include "deque.h"
 #include <iostream>
 
 int main() {
-  Deque<int> dq;
-  dq.push_back(1);
-  dq.push_front(0);
-  dq.push_back(2);
+    Deque<std::string> dq(2, "hi");
+    dq.push_back("world");      // ["hi","hi","world"]
+    dq.push_front("hello");    // ["hello","hi","hi","world"]
 
-  for (auto x : dq) std::cout << x << " ";  // 0 1 2
-  std::cout << "\nSize: " << dq.size() << '\n';
+    for (auto it = dq.begin(); it != dq.end(); ++it)
+        std::cout << *it << ' ';
+    // hello hi hi world
 
-  dq.pop_front();                           // удаляет 0
-  dq.insert(dq.begin()+1, 5);               // вставляет 5 перед 2
-  std::cout << dq[1];                       // 5
+    auto mid = dq.begin() + 2;
+    dq.insert(mid, "dear");     // insert in middle
+    dq.erase(mid);               // remove
 
-  dq.erase(dq.begin());                     // удаляет 1
-  for (auto it = dq.rbegin(); it != dq.rend(); ++it)
-    std::cout << *it << " ";               // 2 5
+    std::cout << "\nSize: " << dq.size();
 }
-```
+````
+
