@@ -1,14 +1,10 @@
 #pragma once
 
-#include <cmath>
 #include <functional>
 #include <iterator>
-#include <stdexcept>
 
 template <typename... Args>
 class Tuple;
-
-struct internal_construct_tag {};
 
 namespace detail {
 /// IsCopyListInitializable
@@ -56,6 +52,22 @@ struct TypeCount<Temp, Head, Tail...> {
     static constexpr size_t kValue =
         (std::is_same_v<Temp, Head> ? 1 : 0) + TypeCount<Temp, Tail...>::kValue;
 };
+
+/// get concatenate type
+template <typename...>
+struct getCatType;
+
+template <typename T>
+struct getCatType<T> {
+    using type = T;
+};
+
+template <typename... Args1, typename... Args2, typename... Tuples>
+struct getCatType<Tuple<Args1...>, Tuple<Args2...>, Tuples...> {
+    using type = typename getCatType<Tuple<Args1..., Args2...>, Tuples...>::type;
+};
+
+struct concatenate_construct_tag {};
 }  // namespace detail
 
 template <size_t I, typename T>
@@ -145,24 +157,6 @@ constexpr Temp& get(Tuple<Head, Tail...>& tuple) {
 template <>
 class Tuple<> {};
 
-template <typename...>
-struct getCatType;
-
-// template <>
-// struct getCatType<> {
-//     using type = Tuple<>;
-// };
-
-template <typename T>
-struct getCatType<T> {
-    using type = T;
-};
-
-template <typename... Args1, typename... Args2, typename... Tuples>
-struct getCatType<Tuple<Args1...>, Tuple<Args2...>, Tuples...> {
-    using type = typename getCatType<Tuple<Args1..., Args2...>, Tuples...>::type;
-};
-
 template <typename Head, typename... Tail>
 class Tuple<Head, Tail...> {
     Head head_;
@@ -205,21 +199,21 @@ class Tuple<Head, Tail...> {
     }
 
     template <typename UHead, typename... TailOfTuples>
-    Tuple(internal_construct_tag tag, UHead&& head, TailOfTuples&&... tail)
+    Tuple(detail::concatenate_construct_tag tag, UHead&& head, TailOfTuples&&... tail)
         requires(std::is_same_v<decltype(head.tail_), Tuple<>>)
         : head_(std::forward<decltype(head.head_)>(head.head_)),
           tail_(tag, std::forward<TailOfTuples>(tail)...) {
     }
 
     template <typename UHead, typename... TailOfTuples>
-    Tuple(internal_construct_tag tag, UHead&& head, TailOfTuples&&... tail)
+    Tuple(detail::concatenate_construct_tag tag, UHead&& head, TailOfTuples&&... tail)
         requires(!std::is_same_v<decltype(head.tail_), Tuple<>>)
         : head_(head.head_),
           tail_(tag, head.tail_, std::forward<TailOfTuples>(tail)...) {
     }
 
     template <typename UHead>
-    Tuple(internal_construct_tag, UHead&& head)
+    Tuple(detail::concatenate_construct_tag, UHead&& head)
         : head_(head.head_),
           tail_(std::forward<decltype(head.tail_)>(head.tail_)) {
     }
@@ -356,16 +350,9 @@ public:
     ~Tuple() {
     }
 
-    // template <typename T>
-    // friend T tupleCat(T&& t);
-
-    // template <typename UHead, typename... TailOfTuples>
-    // friend getCatType<std::remove_reference_t<UHead>,
-    //                   std::remove_reference_t<TailOfTuples>...>::type
-    // tupleCat(UHead&& head, TailOfTuples&&... tail);
-
     template <typename... Args>
-    friend getCatType<std::remove_reference_t<Args>...>::type tupleCat(Args&&... args);
+    friend typename detail::getCatType<std::remove_reference_t<Args>...>::type tupleCat(
+        Args&&... args);
 };
 
 template <typename T1, typename T2>
@@ -373,12 +360,6 @@ Tuple(const std::pair<T1, T2>& pair) -> Tuple<T1, T2>;
 
 template <typename T1, typename T2>
 Tuple(std::pair<T1, T2>&& pair) -> Tuple<T1, T2>;
-
-// template <typename Head, typename... Tail>
-// Tuple(Head&& head, Tuple<Tail...>&& tail) -> Tuple<Head, Tail...>;
-
-// template <typename Head, typename... Tail>
-// Tuple(Head&& head, Tuple<Tail...>& tail) -> Tuple<Head, Tail...>;
 
 template <typename... Args>
 constexpr Tuple<std::decay_t<Args>...> makeTuple(Args&&... args) {
@@ -396,7 +377,7 @@ Tuple<Args&&...> forwardAsTuple(Args&&... args) {
 }
 
 template <typename... Args>
-getCatType<std::remove_reference_t<Args>...>::type tupleCat(Args&&... args) {
-    return typename getCatType<std::remove_reference_t<Args>...>::type(internal_construct_tag(),
-                                                                       args...);
+detail::getCatType<std::remove_reference_t<Args>...>::type tupleCat(Args&&... args) {
+    return typename detail::getCatType<std::remove_reference_t<Args>...>::type(
+        detail::concatenate_construct_tag(), args...);
 }

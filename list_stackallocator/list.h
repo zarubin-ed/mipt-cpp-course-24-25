@@ -128,6 +128,8 @@ class List {
             : node_(node) {
         }
 
+        Iterator() = default;
+
         pointer operator->() const {
             return &operator*();
         }
@@ -164,7 +166,7 @@ class List {
 
         bool operator==(const Iterator& other) const = default;
 
-    private:
+    protected:
         const BaseNode* node_;
         friend class List;
     };
@@ -177,7 +179,7 @@ public:
     using value_type = typename iterator::value_type;
     using reference = typename iterator::reference;
     using const_reference = const reference;
-    using size_type = size_t;
+    using size_type = std::size_t;
     using allocator_type =
         typename std::allocator_traits<Allocator>::template rebind_alloc<value_type>;
 
@@ -196,8 +198,23 @@ private:
         std::swap(node_allocator_, other.node_allocator_);
     }
 
+    void delete_node(Node* node) {
+        AllocTraits::destroy(node_allocator_, node);
+        AllocTraits::deallocate(node_allocator_, node, 1);
+    }
+
+    iterator insert_pointer(const_iterator pos, BaseNode* node) {
+        node->next = const_cast<BaseNode*>(pos.node_);
+        node->prev = pos.node_->prev;
+        pos.node_->prev->next = node;
+        const_cast<BaseNode*>(pos.node_)->prev = node;
+        ++size_;
+        return iterator(node);
+    }
+
+public:
     template <typename... Args>
-    iterator internal_insert(const_iterator pos, Args&&... args) {
+    iterator emplace(const_iterator pos, Args&&... args) {
         Node* new_node = AllocTraits::allocate(
             node_allocator_, 1);  // ether throws and we have to do nothing or everything is ok
         try {
@@ -208,25 +225,17 @@ private:
             AllocTraits::deallocate(node_allocator_, new_node, 1);
             throw;
         }
-
-        new_node->next = const_cast<BaseNode*>(pos.node_);
-        new_node->prev = pos.node_->prev;
-
-        pos.node_->prev->next = new_node;
-
-        const_cast<BaseNode*>(pos.node_)->prev = new_node;
-
-        ++size_;
-
-        return iterator(static_cast<BaseNode*>(new_node));
+        return insert_pointer(pos, new_node);
     }
 
-    void delete_node(Node* node) {
-        AllocTraits::destroy(node_allocator_, node);
-        AllocTraits::deallocate(node_allocator_, node, 1);
+    void splice(const_iterator pos, List& other, const_iterator it) {
+        it.node_->prev->next = it.node_->next;
+        it.node_->next->prev = it.node_->prev;
+        insert_pointer(pos, const_cast<BaseNode*>(it.node_));
+
+        --other.size_;
     }
 
-public:
     List() = default;
 
     List(const Allocator& allocator)
@@ -237,19 +246,26 @@ public:
     List(size_t size, const Allocator& allocator = Allocator())
         : List(allocator) {
         for (size_t i = 0; i < size; ++i) {
-            internal_insert(cend());
+            emplace(cend());
         }
     }
 
     List(size_t size, const T& value, const Allocator& allocator = Allocator())
         : List(allocator) {
         for (size_t i = 0; i < size; ++i) {
-            internal_insert(cend(), value);
+            emplace(cend(), value);
         }
     }
 
     List(const List& other)
         : List(other, AllocTraits::select_on_container_copy_construction(other.node_allocator_)) {
+    }
+
+    List(List&& other)
+        : size_(std::move(other.size_)),
+          node_allocator_(other.node_allocator_) {
+        fake_node_.swap(other.fake_node_);
+        other.size_ = 0;
     }
 
     List(const List& other, const Allocator& allocator)
@@ -263,13 +279,30 @@ public:
         clear();
     }
 
-    void clear() {
-        iterator current = begin();
-        while (current != end()) {
-            iterator next = std::next(current);
-            delete_node(static_cast<Node*>(const_cast<BaseNode*>(current.node_)));
-            current = next;
+    iterator erase(const_iterator pos) {
+        iterator iterator_to_return = iterator(pos.node_->next);
+
+        Node* to_destroy = static_cast<Node*>(const_cast<BaseNode*>(pos.node_));
+
+        pos.node_->prev->next = pos.node_->next;
+        pos.node_->next->prev = pos.node_->prev;
+
+        delete_node(to_destroy);
+
+        --size_;
+        return iterator_to_return;
+    }
+
+    iterator erase(const_iterator bg, const_iterator ed) {
+        iterator result;
+        while (bg != ed) {
+            bg = result = erase(bg);
         }
+        return result;
+    }
+
+    void clear() {
+        erase(begin(), end());
     }
 
     void swap(List& other) noexcept(AllocTraits::propagate_on_container_swap::value) {
@@ -282,7 +315,7 @@ public:
                 std::swap(node_allocator_, other.node_allocator_);
             }
         } else {
-            List temp_this(other, node_allocator_);
+            List temp_this(*this, node_allocator_);
             List temp_other(other, node_allocator_);
 
             swap_without_alloc(temp_this);
@@ -294,11 +327,30 @@ public:
         if (this == &other) {
             return *this;
         }
+        List tmp(other, node_allocator_);
+        swap_without_alloc(tmp);
         if constexpr (AllocTraits::propagate_on_container_copy_assignment::value) {
             node_allocator_ = other.node_allocator_;
         }
-        List tmp(other, node_allocator_);
-        swap_without_alloc(tmp);
+        return *this;
+    }
+
+    List& operator=(List&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        bool is_fast_move = AllocTraits::propagate_on_container_move_assignment::value ||
+                            other.node_allocator_ == node_allocator_;
+        if (is_fast_move) {
+            List tmp(std::move(other));
+            swap_without_alloc(tmp);
+            if constexpr (AllocTraits::propagate_on_container_move_assignment::value) {
+                node_allocator_ = std::move(other.node_allocator_);
+            }
+        } else {
+            List temp(std::move(other), node_allocator_);
+            swap_without_alloc(temp);
+        }
         return *this;
     }
 
@@ -363,21 +415,7 @@ public:
     }
 
     iterator insert(const_iterator pos, const T& value) {
-        return internal_insert(pos, value);
-    }
-
-    iterator erase(const_iterator pos) {
-        iterator iterator_to_return = iterator(pos.node_->next);
-
-        Node* to_destroy = static_cast<Node*>(const_cast<BaseNode*>(pos.node_));
-
-        pos.node_->prev->next = pos.node_->next;
-        pos.node_->next->prev = pos.node_->prev;
-
-        delete_node(to_destroy);
-
-        --size_;
-        return iterator_to_return;
+        return emplace(pos, value);
     }
 
     void push_back(const T& value) {
